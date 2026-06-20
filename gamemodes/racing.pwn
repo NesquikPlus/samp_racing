@@ -27,6 +27,7 @@ enum E_PLAYER_STATE
 {
     PSTATE_NONE = 0,
     PSTATE_CREATING,
+    PSTATE_WAITING,
     PSTATE_RACING
 };
 
@@ -34,7 +35,8 @@ enum E_RACE_DATA
 {
     rUsed,
     rName[MAX_RACE_NAME],
-    rCPCount
+    rCPCount,
+    rVehicle
 };
 
 new gRaces[MAX_RACES][E_RACE_DATA];
@@ -47,6 +49,13 @@ new gPlayerVehicle[MAX_PLAYERS];
 
 new gCreatorCPCount[MAX_PLAYERS];
 new Float:gCreatorCP[MAX_PLAYERS][MAX_CHECKPOINTS][3];
+
+// Per-race session state
+new gRaceCountdown[MAX_RACES];   // -1=no session, 1-15=counting, 0=race running
+new gRaceSession[MAX_RACES];     // session ID to invalidate stale timer callbacks
+new gRaceFinishPos[MAX_RACES];   // how many players have finished this session
+
+forward RaceCountdownTick(raceid, sessionid);
 
 new gVehicleNames[VEHICLE_NAME_COUNT][] =
 {
@@ -285,6 +294,13 @@ public OnGameModeInit()
     EnsureRaceStorage();
     LoadAllRaces();
 
+    for(new i = 0; i < MAX_RACES; i++)
+    {
+        gRaceCountdown[i] = -1;
+        gRaceSession[i] = 0;
+        gRaceFinishPos[i] = 0;
+    }
+
     return 1;
 }
 
@@ -411,15 +427,36 @@ public OnPlayerEnterRaceCheckpoint(playerid)
     }
     else
     {
-        new reward = RACE_REWARD_BASE + (cpCount * RACE_REWARD_PER_CP);
+        new baseReward = RACE_REWARD_BASE + (cpCount * RACE_REWARD_PER_CP);
+        new finishPos = gRaceFinishPos[raceid] + 1;
+        gRaceFinishPos[raceid]++;
+
+        new pct;
+        if(finishPos == 1)      pct = 100;
+        else if(finishPos == 2) pct = 75;
+        else if(finishPos == 3) pct = 50;
+        else                    pct = 25;
+        new reward = (baseReward * pct) / 100;
         GivePlayerMoney(playerid, reward);
 
+        new posStr[8];
+        if(finishPos == 1)      format(posStr, sizeof(posStr), "1st");
+        else if(finishPos == 2) format(posStr, sizeof(posStr), "2nd");
+        else if(finishPos == 3) format(posStr, sizeof(posStr), "3rd");
+        else                    format(posStr, sizeof(posStr), "%dth", finishPos);
+
         new msg[128];
-        format(msg, sizeof(msg), "Race complete! You finished \"%s\" and earned $%d.", gRaces[raceid][rName], reward);
+        format(msg, sizeof(msg), "Race complete! You finished %s and earned $%d.", posStr, reward);
         SendClientMessage(playerid, COLOR_GREEN, msg);
         GameTextForPlayer(playerid, "~g~Race complete!", 3000, 5);
 
-        ResetPlayerRace(playerid);
+        new pname[MAX_PLAYER_NAME];
+        GetPlayerName(playerid, pname, sizeof(pname));
+        new announce[128];
+        format(announce, sizeof(announce), "%s finished %s in \"%s\" and earned $%d!", pname, posStr, gRaces[raceid][rName], reward);
+        SendClientMessageToAll(COLOR_YELLOW, announce);
+
+        ResetPlayerRace(playerid, true);
     }
 
     return 1;
@@ -448,7 +485,7 @@ public OnPlayerCommandText(playerid, cmdtext[])
         SyncPlayerVehicleFromSeat(playerid);
 
         SendClientMessage(playerid, COLOR_GREEN, "Race creation started. Drive to each point and use /cp to place checkpoints.");
-        SendClientMessage(playerid, COLOR_GREEN, "When finished, use /save_race [name]. Use /cancel_race to abort.");
+        SendClientMessage(playerid, COLOR_GREEN, "When done: /save_race [name] [vehicle]  (e.g. /save_race highway infernus)  |  Abort: /cancel_race");
         return 1;
     }
 
@@ -491,7 +528,7 @@ public OnPlayerCommandText(playerid, cmdtext[])
 
         if(!strlen(params))
         {
-            SendClientMessage(playerid, COLOR_RED, "Usage: /save_race [race_name]");
+            SendClientMessage(playerid, COLOR_RED, "Usage: /save_race [race_name] [vehicle]");
             return 1;
         }
 
@@ -505,6 +542,21 @@ public OnPlayerCommandText(playerid, cmdtext[])
         if(!NormalizeRaceName(params, raceName, sizeof(raceName)))
         {
             SendClientMessage(playerid, COLOR_RED, "Invalid race name. Use letters, numbers, and underscores only.");
+            return 1;
+        }
+
+        new vehicleArg[64];
+        format(vehicleArg, sizeof(vehicleArg), "%s", strtok(cmdtext, idx));
+        if(!strlen(vehicleArg))
+        {
+            SendClientMessage(playerid, COLOR_RED, "Usage: /save_race [race_name] [vehicle]  (e.g. /save_race highway infernus)");
+            return 1;
+        }
+
+        new raceVehicle = GetVehicleModelFromInput(vehicleArg);
+        if(raceVehicle == -1)
+        {
+            SendClientMessage(playerid, COLOR_RED, "Unknown vehicle name. Example: infernus, sultan, nrg500");
             return 1;
         }
 
@@ -522,6 +574,7 @@ public OnPlayerCommandText(playerid, cmdtext[])
         gRaces[raceid][rUsed] = true;
         format(gRaces[raceid][rName], MAX_RACE_NAME, "%s", raceName);
         gRaces[raceid][rCPCount] = gCreatorCPCount[playerid];
+        gRaces[raceid][rVehicle] = raceVehicle;
 
         for(new i = 0; i < gCreatorCPCount[playerid]; i++)
         {
@@ -542,8 +595,8 @@ public OnPlayerCommandText(playerid, cmdtext[])
         gPlayerState[playerid] = PSTATE_NONE;
         SyncPlayerVehicleFromSeat(playerid);
 
-        new msg[96];
-        format(msg, sizeof(msg), "Race \"%s\" saved with %d checkpoints.", raceName, gRaces[raceid][rCPCount]);
+        new msg[128];
+        format(msg, sizeof(msg), "Race \"%s\" saved with %d checkpoints (%s).", raceName, gRaces[raceid][rCPCount], gVehicleNames[raceVehicle - MIN_VEHICLE_MODEL]);
         SendClientMessage(playerid, COLOR_GREEN, msg);
         return 1;
     }
@@ -553,6 +606,12 @@ public OnPlayerCommandText(playerid, cmdtext[])
         if(gPlayerState[playerid] == PSTATE_CREATING)
         {
             SendClientMessage(playerid, COLOR_RED, "Finish or cancel race creation first (/save_race or /cancel_race).");
+            return 1;
+        }
+
+        if(gPlayerState[playerid] == PSTATE_WAITING || gPlayerState[playerid] == PSTATE_RACING)
+        {
+            SendClientMessage(playerid, COLOR_RED, "You are already in a race. Use /cancel_race to leave.");
             return 1;
         }
 
@@ -576,11 +635,11 @@ public OnPlayerCommandText(playerid, cmdtext[])
             return 1;
         }
 
-        ResetPlayerRace(playerid);
-
-        gPlayerState[playerid] = PSTATE_RACING;
-        gPlayerRace[playerid] = raceid;
-        gPlayerCPIndex[playerid] = 0;
+        if(gRaceCountdown[raceid] == 0)
+        {
+            SendClientMessage(playerid, COLOR_RED, "That race is already running. Wait for the next session.");
+            return 1;
+        }
 
         new Float:sx = gRaceCheckpoints[raceid][0][0];
         new Float:sy = gRaceCheckpoints[raceid][0][1];
@@ -588,9 +647,28 @@ public OnPlayerCommandText(playerid, cmdtext[])
         new Float:angle = 0.0;
 
         if(gRaces[raceid][rCPCount] > 1)
-        {
             angle = GetAngleToPoint(sx, sy, gRaceCheckpoints[raceid][1][0], gRaceCheckpoints[raceid][1][1]);
+
+        // Count existing waiters to compute a grid spawn slot
+        new waiterSlot = 0;
+        for(new wi = 0; wi < MAX_PLAYERS; wi++)
+        {
+            if(!IsPlayerConnected(wi) || wi == playerid) continue;
+            if(gPlayerState[wi] == PSTATE_WAITING && gPlayerRace[wi] == raceid)
+                waiterSlot++;
         }
+
+        // Spread players sideways from the start (alternating left/right)
+        new Float:perpAngle = angle - 90.0;
+        new Float:sideOff;
+        if(waiterSlot % 2 == 0)
+            sideOff = float(waiterSlot / 2) * 5.0;
+        else
+            sideOff = -(float(waiterSlot / 2) + 1.0) * 5.0;
+        new Float:spawnX = sx + sideOff * floatsin(-perpAngle, degrees);
+        new Float:spawnY = sy + sideOff * floatcos(-perpAngle, degrees);
+
+        ResetPlayerRace(playerid);
 
         if(gPlayerVehicle[playerid] != INVALID_VEHICLE_ID)
         {
@@ -598,14 +676,38 @@ public OnPlayerCommandText(playerid, cmdtext[])
             gPlayerVehicle[playerid] = INVALID_VEHICLE_ID;
         }
 
-        gPlayerVehicle[playerid] = CreateVehicle(RACE_VEHICLE, sx, sy, sz, angle, -1, -1, -1);
+        gPlayerVehicle[playerid] = CreateVehicle(gRaces[raceid][rVehicle], spawnX, spawnY, sz, angle, -1, -1, -1);
         PutPlayerInVehicle(playerid, gPlayerVehicle[playerid], 0);
+        TogglePlayerControllable(playerid, 0);
 
-        ShowRaceCheckpoint(playerid, raceid, 0);
+        gPlayerState[playerid] = PSTATE_WAITING;
+        gPlayerRace[playerid] = raceid;
+        gPlayerCPIndex[playerid] = 0;
 
-        new msg[96];
-        format(msg, sizeof(msg), "Race \"%s\" started! Collect %d checkpoints in order.", raceName, gRaces[raceid][rCPCount]);
-        SendClientMessage(playerid, COLOR_GREEN, msg);
+        new pname[MAX_PLAYER_NAME];
+        GetPlayerName(playerid, pname, sizeof(pname));
+
+        if(gRaceCountdown[raceid] == -1)
+        {
+            gRaceCountdown[raceid] = 15;
+            gRaceSession[raceid]++;
+            SetTimerEx("RaceCountdownTick", 1000, false, "ii", raceid, gRaceSession[raceid]);
+
+            new msg[128];
+            format(msg, sizeof(msg), "%s started a session for \"%s\"! Use /start_race %s to join (%ds countdown)", pname, raceName, raceName, gRaceCountdown[raceid]);
+            SendClientMessageToAll(COLOR_YELLOW, msg);
+        }
+        else
+        {
+            new msg[128];
+            format(msg, sizeof(msg), "%s joined \"%s\"! (%ds remaining - /start_race %s to join)", pname, raceName, gRaceCountdown[raceid], raceName);
+            SendClientMessageToAll(COLOR_YELLOW, msg);
+        }
+
+        new countdownTxt[16];
+        format(countdownTxt, sizeof(countdownTxt), "~y~%d", gRaceCountdown[raceid]);
+        GameTextForPlayer(playerid, countdownTxt, 1500, 3);
+
         return 1;
     }
 
@@ -635,7 +737,7 @@ public OnPlayerCommandText(playerid, cmdtext[])
             if(!gRaces[i][rUsed]) continue;
 
             new msg[96];
-            format(msg, sizeof(msg), "- %s (%d checkpoints)", gRaces[i][rName], gRaces[i][rCPCount]);
+            format(msg, sizeof(msg), "- %s (%d checkpoints, %s)", gRaces[i][rName], gRaces[i][rCPCount], gVehicleNames[gRaces[i][rVehicle] - MIN_VEHICLE_MODEL]);
             SendClientMessage(playerid, COLOR_YELLOW, msg);
             found++;
         }
@@ -702,8 +804,8 @@ ShowPlayerHelp(playerid)
     SendClientMessage(playerid, COLOR_WHITE, "========== {FF8800}Racing Server Commands{FFFFFF} ==========");
     SendClientMessage(playerid, COLOR_YELLOW, "/create_race {FFFFFF}- Start creating a new race track");
     SendClientMessage(playerid, COLOR_YELLOW, "/cp {FFFFFF}- Place a checkpoint at your position (while creating)");
-    SendClientMessage(playerid, COLOR_YELLOW, "/save_race [name] {FFFFFF}- Save the track you are creating");
-    SendClientMessage(playerid, COLOR_YELLOW, "/start_race [name] {FFFFFF}- Start racing a saved track");
+    SendClientMessage(playerid, COLOR_YELLOW, "/save_race [name] [vehicle] {FFFFFF}- Save the track (e.g. /save_race highway infernus)");
+    SendClientMessage(playerid, COLOR_YELLOW, "/start_race [name] {FFFFFF}- Join/start a race (15s countdown, others can join)");
     SendClientMessage(playerid, COLOR_YELLOW, "/cancel_race {FFFFFF}- Cancel race creation or an active race");
     SendClientMessage(playerid, COLOR_YELLOW, "/list_races {FFFFFF}- Show all saved race tracks");
     SendClientMessage(playerid, COLOR_YELLOW, "/spawn_car [name] {FFFFFF}- Spawn a vehicle by name (not while racing)");
@@ -715,6 +817,7 @@ ResetPlayerRace(playerid, bool:keepVehicle = false)
 {
     DisablePlayerRaceCheckpoint(playerid);
     DisablePlayerCheckpoint(playerid);
+    TogglePlayerControllable(playerid, 1);
 
     if(!keepVehicle && gPlayerVehicle[playerid] != INVALID_VEHICLE_ID)
     {
@@ -722,13 +825,78 @@ ResetPlayerRace(playerid, bool:keepVehicle = false)
         gPlayerVehicle[playerid] = INVALID_VEHICLE_ID;
     }
 
+    // If the player was actively racing, check whether the session is now empty
+    if(gPlayerState[playerid] == PSTATE_RACING)
+    {
+        new raceid = gPlayerRace[playerid];
+        if(raceid >= 0 && gRaceCountdown[raceid] == 0)
+        {
+            new stillRacing = 0;
+            for(new i = 0; i < MAX_PLAYERS; i++)
+            {
+                if(!IsPlayerConnected(i) || i == playerid) continue;
+                if(gPlayerState[i] == PSTATE_RACING && gPlayerRace[i] == raceid)
+                    stillRacing++;
+            }
+            if(stillRacing == 0)
+            {
+                gRaceCountdown[raceid] = -1;
+                gRaceFinishPos[raceid] = 0;
+            }
+        }
+    }
+
     gPlayerRace[playerid] = -1;
     gPlayerCPIndex[playerid] = 0;
 
-    if(gPlayerState[playerid] == PSTATE_RACING)
-    {
+    if(gPlayerState[playerid] == PSTATE_RACING || gPlayerState[playerid] == PSTATE_WAITING)
         gPlayerState[playerid] = PSTATE_NONE;
+}
+
+public RaceCountdownTick(raceid, sessionid)
+{
+    if(sessionid != gRaceSession[raceid]) return 0;
+
+    gRaceCountdown[raceid]--;
+
+    if(gRaceCountdown[raceid] > 0)
+    {
+        new countdownTxt[16];
+        format(countdownTxt, sizeof(countdownTxt), "~y~%d", gRaceCountdown[raceid]);
+
+        for(new i = 0; i < MAX_PLAYERS; i++)
+        {
+            if(!IsPlayerConnected(i)) continue;
+            if(gPlayerState[i] == PSTATE_WAITING && gPlayerRace[i] == raceid)
+                GameTextForPlayer(i, countdownTxt, 1500, 3);
+        }
+
+        SetTimerEx("RaceCountdownTick", 1000, false, "ii", raceid, sessionid);
     }
+    else
+    {
+        // Countdown finished - launch all waiting players
+        gRaceCountdown[raceid] = 0;
+        gRaceFinishPos[raceid] = 0;
+
+        new launched = 0;
+        for(new i = 0; i < MAX_PLAYERS; i++)
+        {
+            if(!IsPlayerConnected(i)) continue;
+            if(gPlayerState[i] != PSTATE_WAITING || gPlayerRace[i] != raceid) continue;
+
+            gPlayerState[i] = PSTATE_RACING;
+            gPlayerCPIndex[i] = 0;
+            TogglePlayerControllable(i, 1);
+            ShowRaceCheckpoint(i, raceid, 0);
+            GameTextForPlayer(i, "~g~GO!", 2000, 3);
+            launched++;
+        }
+
+        if(launched == 0)
+            gRaceCountdown[raceid] = -1;
+    }
+    return 1;
 }
 
 SyncPlayerVehicleFromSeat(playerid)
@@ -957,14 +1125,24 @@ LoadRaceFromFile(const raceName[], raceid)
         return 0;
     }
 
-    new cpCount = strval(line);
+    new firstIdx;
+    new cpToken[16];
+    format(cpToken, sizeof(cpToken), "%s", strtok(line, firstIdx));
+    new cpCount = strval(cpToken);
     if(cpCount < 2 || cpCount > MAX_CHECKPOINTS)
     {
         fclose(file);
         return 0;
     }
 
+    new vehicleToken[16];
+    format(vehicleToken, sizeof(vehicleToken), "%s", strtok(line, firstIdx));
+    new vehicleModel = strlen(vehicleToken) ? strval(vehicleToken) : RACE_VEHICLE;
+    if(vehicleModel < MIN_VEHICLE_MODEL || vehicleModel > MAX_VEHICLE_MODEL)
+        vehicleModel = RACE_VEHICLE;
+
     gRaces[raceid][rCPCount] = cpCount;
+    gRaces[raceid][rVehicle] = vehicleModel;
 
     for(new i = 0; i < cpCount; i++)
     {
@@ -994,7 +1172,7 @@ SaveRaceToFile(raceid)
     if(!file) return 0;
 
     new line[128];
-    format(line, sizeof(line), "%d\r\n", gRaces[raceid][rCPCount]);
+    format(line, sizeof(line), "%d %d\r\n", gRaces[raceid][rCPCount], gRaces[raceid][rVehicle]);
     fwrite(file, line);
 
     for(new i = 0; i < gRaces[raceid][rCPCount]; i++)
