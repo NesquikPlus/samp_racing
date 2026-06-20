@@ -1,6 +1,9 @@
 #include <a_samp>
 #include <core>
 #include <float>
+#include "../include/vehicle_names.inc"
+#include "../include/gl_common.inc"
+#include "../include/gl_spawns.inc"
 
 #pragma tabsize 0
 
@@ -9,17 +12,17 @@
 #define COLOR_RED       0xAA3333AA
 #define COLOR_YELLOW    0xFFFF00AA
 
-#define MAX_RACES           32
-#define MAX_CHECKPOINTS     64
+#define CITY_LOS_SANTOS     0
+#define CITY_SAN_FIERRO     1
+#define CITY_LAS_VENTURAS   2
+
+#define MAX_RACES           64
+#define MAX_CHECKPOINTS     128
 #define MAX_RACE_NAME       32
 #define CHECKPOINT_SIZE     8.0
 #define RACE_REWARD_BASE    5000
 #define RACE_REWARD_PER_CP  500
 #define RACE_VEHICLE        411
-
-#define MIN_VEHICLE_MODEL   400
-#define MAX_VEHICLE_MODEL   611
-#define VEHICLE_NAME_COUNT  212
 
 #define RACES_INDEX         "races_index.txt"
 
@@ -55,241 +58,138 @@ new gRaceCountdown[MAX_RACES];   // -1=no session, 1-15=counting, 0=race running
 new gRaceSession[MAX_RACES];     // session ID to invalidate stale timer callbacks
 new gRaceFinishPos[MAX_RACES];   // how many players have finished this session
 
+// Grand Larceny freeroam
+new gTotalVehiclesFromFiles;
+new gPlayerCitySelection[MAX_PLAYERS];
+new gPlayerHasCitySelected[MAX_PLAYERS];
+new gPlayerLastCitySelectionTick[MAX_PLAYERS];
+
+new Text:txtClassSelHelper;
+new Text:txtLosSantos;
+new Text:txtSanFierro;
+new Text:txtLasVenturas;
+
 forward RaceCountdownTick(raceid, sessionid);
 
-new gVehicleNames[VEHICLE_NAME_COUNT][] =
-{
-    {"Landstalker"},
-    {"Bravura"},
-    {"Buffalo"},
-    {"Linerunner"},
-    {"Perrenial"},
-    {"Sentinel"},
-    {"Dumper"},
-    {"Firetruck"},
-    {"Trashmaster"},
-    {"Stretch"},
-    {"Manana"},
-    {"Infernus"},
-    {"Voodoo"},
-    {"Pony"},
-    {"Mule"},
-    {"Cheetah"},
-    {"Ambulance"},
-    {"Leviathan"},
-    {"Moonbeam"},
-    {"Esperanto"},
-    {"Taxi"},
-    {"Washington"},
-    {"Bobcat"},
-    {"Mr Whoopee"},
-    {"BF Injection"},
-    {"Hunter"},
-    {"Premier"},
-    {"Enforcer"},
-    {"Securicar"},
-    {"Banshee"},
-    {"Predator"},
-    {"Bus"},
-    {"Rhino"},
-    {"Barracks"},
-    {"Hotknife"},
-    {"Trailer 1"},
-    {"Previon"},
-    {"Coach"},
-    {"Cabbie"},
-    {"Stallion"},
-    {"Rumpo"},
-    {"RC Bandit"},
-    {"Romero"},
-    {"Packer"},
-    {"Monster"},
-    {"Admiral"},
-    {"Squalo"},
-    {"Seasparrow"},
-    {"Pizzaboy"},
-    {"Tram"},
-    {"Trailer 2"},
-    {"Turismo"},
-    {"Speeder"},
-    {"Reefer"},
-    {"Tropic"},
-    {"Flatbed"},
-    {"Yankee"},
-    {"Caddy"},
-    {"Solair"},
-    {"Berkley's RC Van"},
-    {"Skimmer"},
-    {"PCJ-600"},
-    {"Faggio"},
-    {"Freeway"},
-    {"RC Baron"},
-    {"RC Raider"},
-    {"Glendale"},
-    {"Oceanic"},
-    {"Sanchez"},
-    {"Sparrow"},
-    {"Patriot"},
-    {"Quad"},
-    {"Coastguard"},
-    {"Dinghy"},
-    {"Hermes"},
-    {"Sabre"},
-    {"Rustler"},
-    {"ZR-350"},
-    {"Walton"},
-    {"Regina"},
-    {"Comet"},
-    {"BMX"},
-    {"Burrito"},
-    {"Camper"},
-    {"Marquis"},
-    {"Baggage"},
-    {"Dozer"},
-    {"Maverick"},
-    {"News Chopper"},
-    {"Rancher"},
-    {"FBI Rancher"},
-    {"Virgo"},
-    {"Greenwood"},
-    {"Jetmax"},
-    {"Hotring"},
-    {"Sandking"},
-    {"Blista Compact"},
-    {"Police Maverick"},
-    {"Boxville"},
-    {"Benson"},
-    {"Mesa"},
-    {"RC Goblin"},
-    {"Hotring Racer A"},
-    {"Hotring Racer B"},
-    {"Bloodring Banger"},
-    {"Rancher"},
-    {"Super GT"},
-    {"Elegant"},
-    {"Journey"},
-    {"Bike"},
-    {"Mountain Bike"},
-    {"Beagle"},
-    {"Cropdust"},
-    {"Stunt"},
-    {"Tanker"},
-    {"Roadtrain"},
-    {"Nebula"},
-    {"Majestic"},
-    {"Buccaneer"},
-    {"Shamal"},
-    {"Hydra"},
-    {"FCR-900"},
-    {"NRG-500"},
-    {"HPV1000"},
-    {"Cement Truck"},
-    {"Tow Truck"},
-    {"Fortune"},
-    {"Cadrona"},
-    {"FBI Truck"},
-    {"Willard"},
-    {"Forklift"},
-    {"Tractor"},
-    {"Combine"},
-    {"Feltzer"},
-    {"Remington"},
-    {"Slamvan"},
-    {"Blade"},
-    {"Freight"},
-    {"Streak"},
-    {"Vortex"},
-    {"Vincent"},
-    {"Bullet"},
-    {"Clover"},
-    {"Sadler"},
-    {"Firetruck LA"},
-    {"Hustler"},
-    {"Intruder"},
-    {"Primo"},
-    {"Cargobob"},
-    {"Tampa"},
-    {"Sunrise"},
-    {"Merit"},
-    {"Utility"},
-    {"Nevada"},
-    {"Yosemite"},
-    {"Windsor"},
-    {"Monster A"},
-    {"Monster B"},
-    {"Uranus"},
-    {"Jester"},
-    {"Sultan"},
-    {"Stratum"},
-    {"Elegy"},
-    {"Raindance"},
-    {"RC Tiger"},
-    {"Flash"},
-    {"Tahoma"},
-    {"Savanna"},
-    {"Bandito"},
-    {"Freight Flat"},
-    {"Streak Carriage"},
-    {"Kart"},
-    {"Mower"},
-    {"Duneride"},
-    {"Sweeper"},
-    {"Broadway"},
-    {"Tornado"},
-    {"AT-400"},
-    {"DFT-30"},
-    {"Huntley"},
-    {"Stafford"},
-    {"BF-400"},
-    {"Newsvan"},
-    {"Tug"},
-    {"Trailer 3"},
-    {"Emperor"},
-    {"Wayfarer"},
-    {"Euros"},
-    {"Hotdog"},
-    {"Club"},
-    {"Freight Carriage"},
-    {"Trailer 3"},
-    {"Andromada"},
-    {"Dodo"},
-    {"RC Cam"},
-    {"Launch"},
-    {"Police Car (LSPD)"},
-    {"Police Car (SFPD)"},
-    {"Police Car (LVPD)"},
-    {"Police Ranger"},
-    {"Picador"},
-    {"S.W.A.T. Van"},
-    {"Alpha"},
-    {"Phoenix"},
-    {"Glendale"},
-    {"Sadler"},
-    {"Luggage Trailer A"},
-    {"Luggage Trailer B"},
-    {"Stair Trailer"},
-    {"Boxville"},
-    {"Farm Plow"},
-    {"Utility Trailer"}
-};
-
-forward DelayedSpawn(playerid);
 forward Float:GetAngleToPoint(Float:x1, Float:y1, Float:x2, Float:y2);
 
 main()
 {
     print("\n----------------------------------");
-    print("  Racing Gamemode");
+    print("  Racing & Freeroam Gamemode");
+    print("  (Grand Larceny + Racing)");
     print("----------------------------------\n");
 }
 
 public OnGameModeInit()
 {
-    SetGameModeText("Racing");
-    ShowPlayerMarkers(1);
+    SetGameModeText("Racing & Freeroam");
+    ShowPlayerMarkers(PLAYER_MARKERS_MODE_GLOBAL);
     ShowNameTags(1);
+    SetNameTagDrawDistance(40.0);
+    EnableStuntBonusForAll(0);
+    DisableInteriorEnterExits();
+    SetWeather(2);
+    SetWorldTime(11);
 
-    AddPlayerClass(265, 1536.0, -1374.0, 13.5, 90.0, 0, 0, 0, 0, -1, -1);
+    ClassSel_InitTextDraws();
+
+    AddPlayerClass(298,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(299,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(300,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(301,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(302,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(303,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(304,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(305,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(280,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(281,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(282,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(283,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(284,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(285,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(286,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(287,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(288,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(289,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(265,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(266,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(267,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(268,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(269,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(270,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(1,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(2,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(3,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(4,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(5,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(6,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(8,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(42,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(65,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(86,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(119,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(149,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(208,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(273,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(47,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(48,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(49,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(50,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(51,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(52,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(53,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(54,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(55,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(56,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(57,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(58,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(68,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(69,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(70,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(71,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(72,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(73,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(75,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(76,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(78,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(79,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(80,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(81,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(82,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(83,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(84,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(85,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(87,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(88,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(89,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(91,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(92,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(93,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(95,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(96,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(97,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(98,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+    AddPlayerClass(99,1759.0189,-1898.1260,13.5622,266.4503,-1,-1,-1,-1,-1,-1);
+
+    gTotalVehiclesFromFiles += LoadStaticVehiclesFromFile("vehicles/trains.txt");
+    gTotalVehiclesFromFiles += LoadStaticVehiclesFromFile("vehicles/pilots.txt");
+    gTotalVehiclesFromFiles += LoadStaticVehiclesFromFile("vehicles/lv_law.txt");
+    gTotalVehiclesFromFiles += LoadStaticVehiclesFromFile("vehicles/lv_airport.txt");
+    gTotalVehiclesFromFiles += LoadStaticVehiclesFromFile("vehicles/lv_gen.txt");
+    gTotalVehiclesFromFiles += LoadStaticVehiclesFromFile("vehicles/sf_law.txt");
+    gTotalVehiclesFromFiles += LoadStaticVehiclesFromFile("vehicles/sf_airport.txt");
+    gTotalVehiclesFromFiles += LoadStaticVehiclesFromFile("vehicles/sf_gen.txt");
+    gTotalVehiclesFromFiles += LoadStaticVehiclesFromFile("vehicles/ls_law.txt");
+    gTotalVehiclesFromFiles += LoadStaticVehiclesFromFile("vehicles/ls_airport.txt");
+    gTotalVehiclesFromFiles += LoadStaticVehiclesFromFile("vehicles/ls_gen_inner.txt");
+    gTotalVehiclesFromFiles += LoadStaticVehiclesFromFile("vehicles/ls_gen_outer.txt");
+    gTotalVehiclesFromFiles += LoadStaticVehiclesFromFile("vehicles/whetstone.txt");
+    gTotalVehiclesFromFiles += LoadStaticVehiclesFromFile("vehicles/bone.txt");
+    gTotalVehiclesFromFiles += LoadStaticVehiclesFromFile("vehicles/flint.txt");
+    gTotalVehiclesFromFiles += LoadStaticVehiclesFromFile("vehicles/tierra.txt");
+    gTotalVehiclesFromFiles += LoadStaticVehiclesFromFile("vehicles/red_county.txt");
+    printf("Total vehicles from files: %d", gTotalVehiclesFromFiles);
 
     EnsureRaceStorage();
     LoadAllRaces();
@@ -312,21 +212,17 @@ public OnPlayerConnect(playerid)
     gPlayerVehicle[playerid] = INVALID_VEHICLE_ID;
     gCreatorCPCount[playerid] = 0;
 
-    SendClientMessage(playerid, COLOR_WHITE, "Welcome to the {FF8800}Racing{FFFFFF} server!");
-    SendClientMessage(playerid, COLOR_WHITE, "Create tracks: {FFFF00}/create_race{FFFFFF}, {FFFF00}/cp{FFFFFF}, {FFFF00}/save_race [name]");
+    gPlayerCitySelection[playerid] = -1;
+    gPlayerHasCitySelected[playerid] = 0;
+    gPlayerLastCitySelectionTick[playerid] = GetTickCount();
+
+    GameTextForPlayer(playerid, "~w~Racing & Freeroam", 3000, 4);
+    SendClientMessage(playerid, COLOR_WHITE, "Welcome to {88AA88}G{FFFFFF}rand {88AA88}L{FFFFFF}arceny {FF8800}Racing{FFFFFF}!");
+    SendClientMessage(playerid, COLOR_WHITE, "Create tracks: {FFFF00}/create_race{FFFFFF}, {FFFF00}/cp{FFFFFF}, {FFFF00}/editcp{FFFFFF}, {FFFF00}/rmcp{FFFFFF}, {FFFF00}/save_race [name]");
     SendClientMessage(playerid, COLOR_WHITE, "Race a track: {FFFF00}/start_race [name]{FFFFFF}  |  Cancel: {FFFF00}/cancel_race");
     SendClientMessage(playerid, COLOR_WHITE, "Spawn a car: {FFFF00}/spawn_car [name]{FFFFFF}  (e.g. /spawn_car infernus)");
     SendClientMessage(playerid, COLOR_WHITE, "Type {FFFF00}/help{FFFFFF} for a full list of commands.");
 
-    SetTimerEx("DelayedSpawn", 500, false, "i", playerid);
-
-    return 1;
-}
-
-public DelayedSpawn(playerid)
-{
-    if(!IsPlayerConnected(playerid)) return 0;
-    SpawnPlayer(playerid);
     return 1;
 }
 
@@ -335,16 +231,57 @@ public OnPlayerDisconnect(playerid, reason)
     ResetPlayerRace(playerid);
     gCreatorCPCount[playerid] = 0;
     gPlayerState[playerid] = PSTATE_NONE;
+    gPlayerCitySelection[playerid] = -1;
+    gPlayerHasCitySelected[playerid] = 0;
 
     return 1;
 }
 
 public OnPlayerSpawn(playerid)
 {
+    if(IsPlayerNPC(playerid)) return 1;
+
+    if(gPlayerState[playerid] == PSTATE_WAITING || gPlayerState[playerid] == PSTATE_RACING)
+        return 1;
+
+    new randSpawn = 0;
+
     SetPlayerInterior(playerid, 0);
     TogglePlayerClock(playerid, 0);
     ResetPlayerMoney(playerid);
-    GivePlayerMoney(playerid, 1000);
+    GivePlayerMoney(playerid, 30000);
+
+    if(CITY_LOS_SANTOS == gPlayerCitySelection[playerid])
+    {
+        randSpawn = random(sizeof(gRandomSpawns_LosSantos));
+        SetPlayerPos(playerid,
+            gRandomSpawns_LosSantos[randSpawn][0],
+            gRandomSpawns_LosSantos[randSpawn][1],
+            gRandomSpawns_LosSantos[randSpawn][2]);
+        SetPlayerFacingAngle(playerid, gRandomSpawns_LosSantos[randSpawn][3]);
+    }
+    else if(CITY_SAN_FIERRO == gPlayerCitySelection[playerid])
+    {
+        randSpawn = random(sizeof(gRandomSpawns_SanFierro));
+        SetPlayerPos(playerid,
+            gRandomSpawns_SanFierro[randSpawn][0],
+            gRandomSpawns_SanFierro[randSpawn][1],
+            gRandomSpawns_SanFierro[randSpawn][2]);
+        SetPlayerFacingAngle(playerid, gRandomSpawns_SanFierro[randSpawn][3]);
+    }
+    else if(CITY_LAS_VENTURAS == gPlayerCitySelection[playerid])
+    {
+        randSpawn = random(sizeof(gRandomSpawns_LasVenturas));
+        SetPlayerPos(playerid,
+            gRandomSpawns_LasVenturas[randSpawn][0],
+            gRandomSpawns_LasVenturas[randSpawn][1],
+            gRandomSpawns_LasVenturas[randSpawn][2]);
+        SetPlayerFacingAngle(playerid, gRandomSpawns_LasVenturas[randSpawn][3]);
+    }
+
+    GivePlayerWeapon(playerid, WEAPON_DEAGLE, 100);
+    GivePlayerWeapon(playerid, WEAPON_UZI, 100);
+    TogglePlayerClock(playerid, 0);
 
     return 1;
 }
@@ -355,6 +292,64 @@ public OnPlayerDeath(playerid, killerid, reason)
     {
         SendClientMessage(playerid, COLOR_RED, "You died and failed the race. Use /start_race to try again.");
         ResetPlayerRace(playerid);
+        return 1;
+    }
+
+    gPlayerHasCitySelected[playerid] = 0;
+
+    if(killerid == INVALID_PLAYER_ID)
+    {
+        ResetPlayerMoney(playerid);
+    }
+    else
+    {
+        new playercash = GetPlayerMoney(playerid);
+        if(playercash > 0)
+        {
+            GivePlayerMoney(killerid, playercash);
+            ResetPlayerMoney(playerid);
+        }
+    }
+
+    return 1;
+}
+
+public OnPlayerRequestClass(playerid, classid)
+{
+    if(IsPlayerNPC(playerid)) return 1;
+
+    if(gPlayerHasCitySelected[playerid])
+    {
+        ClassSel_SetupCharSelection(playerid);
+        return 1;
+    }
+
+    if(GetPlayerState(playerid) != PLAYER_STATE_SPECTATING)
+    {
+        TogglePlayerSpectating(playerid, 1);
+        TextDrawShowForPlayer(playerid, txtClassSelHelper);
+        gPlayerCitySelection[playerid] = -1;
+    }
+
+    return 0;
+}
+
+public OnPlayerUpdate(playerid)
+{
+    if(!IsPlayerConnected(playerid)) return 0;
+    if(IsPlayerNPC(playerid)) return 1;
+
+    if(!gPlayerHasCitySelected[playerid] &&
+        GetPlayerState(playerid) == PLAYER_STATE_SPECTATING)
+    {
+        ClassSel_HandleCitySelection(playerid);
+        return 1;
+    }
+
+    if(GetPlayerWeapon(playerid) == WEAPON_MINIGUN)
+    {
+        Kick(playerid);
+        return 0;
     }
 
     return 1;
@@ -485,7 +480,7 @@ public OnPlayerCommandText(playerid, cmdtext[])
         SyncPlayerVehicleFromSeat(playerid);
 
         SendClientMessage(playerid, COLOR_GREEN, "Race creation started. Drive to each point and use /cp to place checkpoints.");
-        SendClientMessage(playerid, COLOR_GREEN, "When done: /save_race [name] [vehicle]  (e.g. /save_race highway infernus)  |  Abort: /cancel_race");
+        SendClientMessage(playerid, COLOR_GREEN, "Use /editcp to move or /rmcp to remove the last checkpoint. When done: /save_race [name] [vehicle]  |  Abort: /cancel_race");
         return 1;
     }
 
@@ -515,6 +510,59 @@ public OnPlayerCommandText(playerid, cmdtext[])
         new msg[96];
         format(msg, sizeof(msg), "Checkpoint %d placed at your position.", cp + 1);
         SendClientMessage(playerid, COLOR_GREEN, msg);
+        ShowCreatorCheckpoints(playerid);
+        return 1;
+    }
+
+    if(strcmp(cmd, "/editcp", true) == 0)
+    {
+        if(gPlayerState[playerid] != PSTATE_CREATING)
+        {
+            SendClientMessage(playerid, COLOR_RED, "You are not creating a race. Use /create_race first.");
+            return 1;
+        }
+
+        if(gCreatorCPCount[playerid] < 1)
+        {
+            SendClientMessage(playerid, COLOR_RED, "No checkpoints placed yet. Use /cp first.");
+            return 1;
+        }
+
+        new cp = gCreatorCPCount[playerid] - 1;
+        new Float:x, Float:y, Float:z;
+        GetPlayerPos(playerid, x, y, z);
+
+        gCreatorCP[playerid][cp][0] = x;
+        gCreatorCP[playerid][cp][1] = y;
+        gCreatorCP[playerid][cp][2] = z;
+
+        new msg[96];
+        format(msg, sizeof(msg), "Checkpoint %d moved to your position.", cp + 1);
+        SendClientMessage(playerid, COLOR_GREEN, msg);
+        ShowCreatorCheckpoints(playerid);
+        return 1;
+    }
+
+    if(strcmp(cmd, "/rmcp", true) == 0)
+    {
+        if(gPlayerState[playerid] != PSTATE_CREATING)
+        {
+            SendClientMessage(playerid, COLOR_RED, "You are not creating a race. Use /create_race first.");
+            return 1;
+        }
+
+        if(gCreatorCPCount[playerid] < 1)
+        {
+            SendClientMessage(playerid, COLOR_RED, "No checkpoints to remove. Use /cp first.");
+            return 1;
+        }
+
+        gCreatorCPCount[playerid]--;
+
+        new msg[96];
+        format(msg, sizeof(msg), "Checkpoint %d removed. %d checkpoint(s) remaining.", gCreatorCPCount[playerid] + 1, gCreatorCPCount[playerid]);
+        SendClientMessage(playerid, COLOR_GREEN, msg);
+        ShowCreatorCheckpoints(playerid);
         return 1;
     }
 
@@ -591,6 +639,8 @@ public OnPlayerCommandText(playerid, cmdtext[])
 
         AddRaceToIndex(raceName);
 
+        DisablePlayerRaceCheckpoint(playerid);
+        DisablePlayerCheckpoint(playerid);
         gCreatorCPCount[playerid] = 0;
         gPlayerState[playerid] = PSTATE_NONE;
         SyncPlayerVehicleFromSeat(playerid);
@@ -804,6 +854,8 @@ ShowPlayerHelp(playerid)
     SendClientMessage(playerid, COLOR_WHITE, "========== {FF8800}Racing Server Commands{FFFFFF} ==========");
     SendClientMessage(playerid, COLOR_YELLOW, "/create_race {FFFFFF}- Start creating a new race track");
     SendClientMessage(playerid, COLOR_YELLOW, "/cp {FFFFFF}- Place a checkpoint at your position (while creating)");
+    SendClientMessage(playerid, COLOR_YELLOW, "/editcp {FFFFFF}- Move the last checkpoint to your position (while creating)");
+    SendClientMessage(playerid, COLOR_YELLOW, "/rmcp {FFFFFF}- Remove the last checkpoint (while creating)");
     SendClientMessage(playerid, COLOR_YELLOW, "/save_race [name] [vehicle] {FFFFFF}- Save the track (e.g. /save_race highway infernus)");
     SendClientMessage(playerid, COLOR_YELLOW, "/start_race [name] {FFFFFF}- Join/start a race (15s countdown, others can join)");
     SendClientMessage(playerid, COLOR_YELLOW, "/cancel_race {FFFFFF}- Cancel race creation or an active race");
@@ -998,6 +1050,186 @@ IsNumericString(const str[])
     }
 
     return 1;
+}
+
+ClassSel_SetupCharSelection(playerid)
+{
+    if(gPlayerCitySelection[playerid] == CITY_LOS_SANTOS)
+    {
+        SetPlayerInterior(playerid, 11);
+        SetPlayerPos(playerid, 508.7362, -87.4335, 998.9609);
+        SetPlayerFacingAngle(playerid, 0.0);
+        SetPlayerCameraPos(playerid, 508.7362, -83.4335, 998.9609);
+        SetPlayerCameraLookAt(playerid, 508.7362, -87.4335, 998.9609);
+    }
+    else if(gPlayerCitySelection[playerid] == CITY_SAN_FIERRO)
+    {
+        SetPlayerInterior(playerid, 3);
+        SetPlayerPos(playerid, -2673.8381, 1399.7424, 918.3516);
+        SetPlayerFacingAngle(playerid, 181.0);
+        SetPlayerCameraPos(playerid, -2673.2776, 1394.3859, 918.3516);
+        SetPlayerCameraLookAt(playerid, -2673.8381, 1399.7424, 918.3516);
+    }
+    else if(gPlayerCitySelection[playerid] == CITY_LAS_VENTURAS)
+    {
+        SetPlayerInterior(playerid, 3);
+        SetPlayerPos(playerid, 349.0453, 193.2271, 1014.1797);
+        SetPlayerFacingAngle(playerid, 286.25);
+        SetPlayerCameraPos(playerid, 352.9164, 194.5702, 1014.1875);
+        SetPlayerCameraLookAt(playerid, 349.0453, 193.2271, 1014.1797);
+    }
+}
+
+ClassSel_InitCityNameText(Text:txtInit)
+{
+    TextDrawUseBox(txtInit, 0);
+    TextDrawLetterSize(txtInit, 1.25, 3.0);
+    TextDrawFont(txtInit, 0);
+    TextDrawSetShadow(txtInit, 0);
+    TextDrawSetOutline(txtInit, 1);
+    TextDrawColor(txtInit, 0xEEEEEEFF);
+    TextDrawBackgroundColor(txtClassSelHelper, 0x000000FF);
+}
+
+ClassSel_InitTextDraws()
+{
+    txtLosSantos = TextDrawCreate(10.0, 380.0, "Los Santos");
+    ClassSel_InitCityNameText(txtLosSantos);
+    txtSanFierro = TextDrawCreate(10.0, 380.0, "San Fierro");
+    ClassSel_InitCityNameText(txtSanFierro);
+    txtLasVenturas = TextDrawCreate(10.0, 380.0, "Las Venturas");
+    ClassSel_InitCityNameText(txtLasVenturas);
+
+    txtClassSelHelper = TextDrawCreate(10.0, 415.0,
+        " Press ~b~~k~~GO_LEFT~ ~w~or ~b~~k~~GO_RIGHT~ ~w~to switch cities.~n~ Press ~r~~k~~PED_FIREWEAPON~ ~w~to select.");
+    TextDrawUseBox(txtClassSelHelper, 1);
+    TextDrawBoxColor(txtClassSelHelper, 0x222222BB);
+    TextDrawLetterSize(txtClassSelHelper, 0.3, 1.0);
+    TextDrawTextSize(txtClassSelHelper, 400.0, 40.0);
+    TextDrawFont(txtClassSelHelper, 2);
+    TextDrawSetShadow(txtClassSelHelper, 0);
+    TextDrawSetOutline(txtClassSelHelper, 1);
+    TextDrawBackgroundColor(txtClassSelHelper, 0x000000FF);
+    TextDrawColor(txtClassSelHelper, 0xFFFFFFFF);
+}
+
+ClassSel_SetupSelectedCity(playerid)
+{
+    if(gPlayerCitySelection[playerid] == -1)
+        gPlayerCitySelection[playerid] = CITY_LOS_SANTOS;
+
+    if(gPlayerCitySelection[playerid] == CITY_LOS_SANTOS)
+    {
+        SetPlayerInterior(playerid, 0);
+        SetPlayerCameraPos(playerid, 1630.6136, -2286.0298, 110.0);
+        SetPlayerCameraLookAt(playerid, 1887.6034, -1682.1442, 47.6167);
+
+        TextDrawShowForPlayer(playerid, txtLosSantos);
+        TextDrawHideForPlayer(playerid, txtSanFierro);
+        TextDrawHideForPlayer(playerid, txtLasVenturas);
+    }
+    else if(gPlayerCitySelection[playerid] == CITY_SAN_FIERRO)
+    {
+        SetPlayerInterior(playerid, 0);
+        SetPlayerCameraPos(playerid, -1300.8754, 68.0546, 129.4823);
+        SetPlayerCameraLookAt(playerid, -1817.9412, 769.3878, 132.6589);
+
+        TextDrawHideForPlayer(playerid, txtLosSantos);
+        TextDrawShowForPlayer(playerid, txtSanFierro);
+        TextDrawHideForPlayer(playerid, txtLasVenturas);
+    }
+    else if(gPlayerCitySelection[playerid] == CITY_LAS_VENTURAS)
+    {
+        SetPlayerInterior(playerid, 0);
+        SetPlayerCameraPos(playerid, 1310.6155, 1675.9182, 110.7390);
+        SetPlayerCameraLookAt(playerid, 2285.2944, 1919.3756, 68.2275);
+
+        TextDrawHideForPlayer(playerid, txtLosSantos);
+        TextDrawHideForPlayer(playerid, txtSanFierro);
+        TextDrawShowForPlayer(playerid, txtLasVenturas);
+    }
+}
+
+ClassSel_SwitchToNextCity(playerid)
+{
+    gPlayerCitySelection[playerid]++;
+    if(gPlayerCitySelection[playerid] > CITY_LAS_VENTURAS)
+        gPlayerCitySelection[playerid] = CITY_LOS_SANTOS;
+    PlayerPlaySound(playerid, 1052, 0.0, 0.0, 0.0);
+    gPlayerLastCitySelectionTick[playerid] = GetTickCount();
+    ClassSel_SetupSelectedCity(playerid);
+}
+
+ClassSel_SwitchToPreviousCity(playerid)
+{
+    gPlayerCitySelection[playerid]--;
+    if(gPlayerCitySelection[playerid] < CITY_LOS_SANTOS)
+        gPlayerCitySelection[playerid] = CITY_LAS_VENTURAS;
+    PlayerPlaySound(playerid, 1053, 0.0, 0.0, 0.0);
+    gPlayerLastCitySelectionTick[playerid] = GetTickCount();
+    ClassSel_SetupSelectedCity(playerid);
+}
+
+ClassSel_HandleCitySelection(playerid)
+{
+    new Keys, ud, lr;
+    GetPlayerKeys(playerid, Keys, ud, lr);
+
+    if(gPlayerCitySelection[playerid] == -1)
+    {
+        ClassSel_SwitchToNextCity(playerid);
+        return;
+    }
+
+    if((GetTickCount() - gPlayerLastCitySelectionTick[playerid]) < 500) return;
+
+    if(Keys & KEY_FIRE)
+    {
+        gPlayerHasCitySelected[playerid] = 1;
+        TextDrawHideForPlayer(playerid, txtClassSelHelper);
+        TextDrawHideForPlayer(playerid, txtLosSantos);
+        TextDrawHideForPlayer(playerid, txtSanFierro);
+        TextDrawHideForPlayer(playerid, txtLasVenturas);
+        TogglePlayerSpectating(playerid, 0);
+        return;
+    }
+
+    if(lr > 0)
+        ClassSel_SwitchToNextCity(playerid);
+    else if(lr < 0)
+        ClassSel_SwitchToPreviousCity(playerid);
+}
+
+ShowCreatorCheckpoints(playerid)
+{
+    new count = gCreatorCPCount[playerid];
+    if(count < 1)
+    {
+        DisablePlayerRaceCheckpoint(playerid);
+        DisablePlayerCheckpoint(playerid);
+        return;
+    }
+
+    new last = count - 1;
+    new Float:lx = gCreatorCP[playerid][last][0];
+    new Float:ly = gCreatorCP[playerid][last][1];
+    new Float:lz = gCreatorCP[playerid][last][2];
+
+    if(count >= 2)
+    {
+        new prev = count - 2;
+        new Float:px = gCreatorCP[playerid][prev][0];
+        new Float:py = gCreatorCP[playerid][prev][1];
+        new Float:pz = gCreatorCP[playerid][prev][2];
+
+        SetPlayerCheckpoint(playerid, px, py, pz, CHECKPOINT_SIZE);
+        SetPlayerRaceCheckpoint(playerid, 1, lx, ly, lz, lx, ly, lz, CHECKPOINT_SIZE);
+    }
+    else
+    {
+        DisablePlayerCheckpoint(playerid);
+        SetPlayerRaceCheckpoint(playerid, 1, lx, ly, lz, lx, ly, lz, CHECKPOINT_SIZE);
+    }
 }
 
 ShowRaceCheckpoint(playerid, raceid, cpIndex)
@@ -1251,23 +1483,4 @@ TrimNewline(string[])
         string[len - 1] = '\0';
         len--;
     }
-}
-
-strtok(const string[], &index)
-{
-    new length = strlen(string);
-    while((index < length) && (string[index] <= ' '))
-    {
-        index++;
-    }
-
-    new offset = index;
-    new result[256];
-    while((index < length) && (string[index] > ' ') && ((index - offset) < (sizeof(result) - 1)))
-    {
-        result[index - offset] = string[index];
-        index++;
-    }
-    result[index - offset] = EOS;
-    return result;
 }
